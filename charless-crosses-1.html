@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Charles's Crosses</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Azeret+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16202B;
+    --paper:#DDE2E6;
+    --card:#F6F8F9;
+    --rule:#AAB5BD;
+    --faint:#C6CED4;
+    --quiet:#5A6874;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Azeret Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    -webkit-font-smoothing:antialiased;
+    padding:16px;
+    min-height:100vh;
+  }
+  @media(min-width:640px){body{padding:32px}}
+  .wrap{max-width:760px;margin:0 auto}
+  .disp{font-family:'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif;letter-spacing:-.04em;font-weight:800;line-height:.95}
+  .eyebrow{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--quiet)}
+  .attrib{font-size:10px;letter-spacing:.06em;color:var(--quiet);line-height:1.6}
+  p{line-height:1.6}
+  button{font-family:inherit;cursor:pointer;background:none;border:none;color:inherit}
+  button:disabled{cursor:not-allowed}
+  input{font-family:inherit;background:none;border:none;color:var(--ink);width:100%}
+  input:focus-visible,button:focus-visible,.cell:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+  .btn{
+    font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;
+    padding:10px 14px;border:1.5px solid var(--ink);color:var(--ink);background:transparent;
+  }
+  .btn.solid{background:var(--ink);color:var(--card)}
+  .btn.ghost{border-color:transparent;color:var(--quiet);font-weight:400}
+  .btn.danger{background:#C1443B;color:var(--card);border-color:#C1443B}
+  .btn[disabled]{background:var(--faint);color:#8A949C;border-color:var(--faint)}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .chip{font-size:11px;padding:3px 8px;border:1.5px solid var(--ink);display:inline-block}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cell{
+    background:var(--card);border:1px solid var(--rule);min-height:74px;
+    display:flex;flex-direction:column;padding:4px;position:relative;
+    transition:transform .12s ease;
+  }
+  @media(min-width:640px){.cell{padding:8px;min-height:84px}}
+  .cell:active{transform:scale(.97)}
+  .cell.today{border:2px solid var(--ink)}
+  .cell .num{font-size:11px;color:var(--quiet);text-align:left}
+  .cell.today .num{color:var(--ink);font-weight:700}
+  .marks{flex:1;display:flex;flex-wrap:wrap;gap:1px;align-items:center;justify-content:center}
+  .ring{position:absolute;inset:0;pointer-events:none}
+  .ring ellipse{stroke-dasharray:340;stroke-dashoffset:340;animation:draw .5s ease forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  .srow{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:8px 0;border-bottom:1px solid var(--rule)}
+  hr.thick{border:none;border-top:2px solid var(--ink);margin:24px 0 16px}
+  pre{
+    font-size:11px;line-height:1.7;background:var(--card);border:1px solid var(--rule);
+    padding:12px;white-space:pre-wrap;word-break:break-word;color:#3A4650;
+  }
+  .link{
+    font-size:12px;background:var(--card);border:1px solid var(--rule);padding:10px;
+    word-break:break-all;line-height:1.6;
+  }
+  .toast{font-size:11px;color:var(--quiet)}
+  @media(prefers-reduced-motion:reduce){
+    .ring ellipse{animation:none;stroke-dashoffset:0}
+    .cell{transition:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+/* =========================================================================
+   Charles's Crosses — standalone.
+   Sync runs on jsonstorage.net's free tier: no account, no API key.
+   The planner ID lives in the URL hash, so the link IS the planner.
+   ========================================================================= */
+
+/* Two independent free backends, tried in order. Neither needs an account.
+   The chosen one is recorded in the link, e.g. #p=jb:abc123           */
+var PROVIDERS = {
+  jb: {
+    label: "jsonblob.com",
+    create: async function(data){
+      var r = await fetch("https://jsonblob.com/api/jsonBlob", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(data)
+      });
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      var loc = r.headers.get("Location") || r.headers.get("location");
+      if(!loc) throw new Error("Location header hidden by CORS");
+      return loc.split("/").pop();
+    },
+    url: function(id){ return "https://jsonblob.com/api/jsonBlob/" + id; }
+  },
+  js: {
+    label: "jsonstorage.net",
+    create: async function(data){
+      var r = await fetch("https://api.jsonstorage.net/v1/json", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(data)
+      });
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      var j = await r.json();
+      var m = String(j.uri || "").match(/v1\/json\/(.+)$/);
+      if(!m) throw new Error("no id in response");
+      return m[1];
+    },
+    url: function(id){ return "https://api.jsonstorage.net/v1/json/" + id; }
+  }
+};
+var ORDER = ["jb","js"];
+var DIAG = "";
+
+function splitRoom(room){
+  var i = String(room).indexOf(":");
+  if(i < 0) return {p:"js", id:room};          // links made before providers existed
+  return {p: room.slice(0,i), id: room.slice(i+1)};
+}
+
+var MONTHS = ["January","February","March","April","May","June",
+              "July","August","September","October","November","December"];
+var DOW = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+var WD = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+var INKS = ["#C1443B","#1F6F6B","#7B4EA8","#B5761E","#2C5FA8","#A03A6E","#4A7A2C","#8A5A2B"];
+
+var now = new Date();
+var S = {
+  room: null,
+  board: {people:[], marks:{}},
+  me: null,
+  draft: "",
+  year: now.getFullYear(),
+  month: now.getMonth(),
+  view: "day",
+  note: "",
+  loading: false,
+  auto: false
+};
+var todayKey = key(now.getFullYear(), now.getMonth(), now.getDate());
+var timer = null;
+
+/* ------------------------------- helpers ------------------------------- */
+
+function key(y,m,d){
+  return y + "-" + String(m+1).padStart(2,"0") + "-" + String(d).padStart(2,"0");
+}
+function esc(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function hash(str){
+  var h = 2166136261;
+  for(var i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h,16777619); }
+  return Math.abs(h);
+}
+function inkOf(name){
+  var i = S.board.people.indexOf(name);
+  return i < 0 ? "#16202B" : INKS[i % INKS.length];
+}
+function pretty(k){
+  var p = k.split("-").map(Number);
+  var d = new Date(p[0], p[1]-1, p[2]);
+  return WD[d.getDay()] + " " + p[2] + " " + MONTHS[p[1]-1].slice(0,3);
+}
+function daysIn(y,m){ return new Date(y, m+1, 0).getDate(); }
+function blanksFor(y,m){ return (new Date(y,m,1).getDay() + 6) % 7; }
+function toast(msg){
+  S.note = msg; render();
+  setTimeout(function(){ if(S.note===msg){ S.note=""; render(); } }, 2600);
+}
+function remember(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function recall(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+
+function crossSVG(color, seed, size){
+  var w = function(n){ return ((seed >> n) % 5) - 2; };
+  var rot = (((seed >> 3) % 15) - 7) * 0.9;
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24" aria-hidden="true" '+
+    'style="transform:rotate('+rot+'deg);display:block">'+
+    '<path d="M '+(4+w(1))+' '+(4+w(2))+' L '+(20+w(3))+' '+(20+w(4))+'" stroke="'+color+
+      '" stroke-width="3.4" stroke-linecap="round" fill="none"/>'+
+    '<path d="M '+(20+w(5))+' '+(4+w(6))+' L '+(4+w(7))+' '+(20+w(2))+'" stroke="'+color+
+      '" stroke-width="3.4" stroke-linecap="round" fill="none"/></svg>';
+}
+
+/* --------------------------------- api --------------------------------- */
+
+// Try each backend in turn. Returns "provider:id" for the first that works.
+async function apiCreate(){
+  var errs = [];
+  for(var i=0; i<ORDER.length; i++){
+    var p = ORDER[i];
+    try{
+      var id = await PROVIDERS[p].create({people:[],marks:{}});
+      DIAG = "Connected to " + PROVIDERS[p].label;
+      return p + ":" + id;
+    }catch(e){
+      errs.push(PROVIDERS[p].label + " → " + (e && e.message ? e.message : "blocked"));
+    }
+  }
+  DIAG = errs.join("\n");
+  throw new Error("all backends failed");
+}
+async function apiGet(room){
+  var r0 = splitRoom(room);
+  var r = await fetch(PROVIDERS[r0.p].url(r0.id), {cache:"no-store"});
+  if(!r.ok) throw new Error("HTTP " + r.status);
+  var j = await r.json();
+  return {
+    people: Array.isArray(j.people) ? j.people : [],
+    marks: (j.marks && typeof j.marks === "object") ? j.marks : {}
+  };
+}
+async function apiPut(room, data){
+  var r0 = splitRoom(room);
+  var r = await fetch(PROVIDERS[r0.p].url(r0.id), {
+    method:"PUT",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error("HTTP " + r.status);
+}
+
+/* ------------------------------- actions ------------------------------- */
+
+async function createPlanner(){
+  S.loading = true; render();
+  try{
+    var id = await apiCreate();
+    S.room = id;
+    location.hash = "p=" + id;
+    S.board = {people:[],marks:{}};
+    toast("Planner created — copy the link below");
+  }catch(e){
+    toast("Both sync services refused. Details below.");
+  }
+  S.loading = false; render();
+}
+
+async function pull(loud){
+  if(!S.room) return;
+  try{
+    S.board = await apiGet(S.room);
+    if(loud) toast("Up to date");
+  }catch(e){
+    if(loud) toast("Couldn't refresh — check your connection");
+  }
+  render();
+}
+
+// Read latest, apply the change, write back. Keeps other people's edits.
+async function commit(apply){
+  if(!S.room){ S.board = apply(S.board); render(); return; }
+  var optimistic = apply(JSON.parse(JSON.stringify(S.board)));
+  S.board = optimistic; render();
+  try{
+    var latest = await apiGet(S.room);
+    var next = apply(latest);
+    await apiPut(S.room, next);
+    S.board = next; render();
+  }catch(e){
+    toast("Couldn't save that — tap Refresh and try again");
+    pull(false);
+  }
+}
+
+function join(){
+  var name = (S.draft || "").trim().slice(0,20);
+  if(!name) return;
+  var existing = S.board.people.filter(function(p){
+    return p.toLowerCase() === name.toLowerCase();
+  })[0];
+  S.me = existing || name;
+  remember("crosses:name", S.me);
+  if(!existing){
+    commit(function(b){
+      if(b.people.indexOf(name) < 0) b.people = b.people.concat([name]);
+      return b;
+    });
+  } else render();
+}
+
+function toggle(k){
+  if(!S.me) return;
+  var me = S.me;
+  commit(function(b){
+    var list = (b.marks[k] || []).slice();
+    var i = list.indexOf(me);
+    if(i >= 0) list.splice(i,1); else list.push(me);
+    var marks = {};
+    for(var kk in b.marks) if(kk !== k) marks[kk] = b.marks[kk];
+    if(list.length) marks[k] = list;
+    var people = b.people.indexOf(me) < 0 ? b.people.concat([me]) : b.people;
+    return {people:people, marks:marks};
+  });
+}
+
+function clearMine(){
+  var me = S.me;
+  commit(function(b){
+    var marks = {};
+    for(var k in b.marks){
+      var left = b.marks[k].filter(function(n){ return n !== me; });
+      if(left.length) marks[k] = left;
+    }
+    return {people:b.people, marks:marks};
+  });
+  toast("Your crosses are cleared");
+}
+
+function resetAll(){
+  commit(function(){ return {people:[],marks:{}}; });
+  toast("Planner reset");
+}
+
+function step(dir){
+  var m = S.month + dir, y = S.year;
+  if(m < 0){ m = 11; y--; }
+  if(m > 11){ m = 0; y++; }
+  S.month = m; S.year = y; render();
+}
+
+function copyText(text, ok){
+  function fallback(){
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); toast(ok); }
+    catch(e){ toast("Couldn't copy — select the text and copy it manually"); }
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(function(){ toast(ok); }, fallback);
+  } else fallback();
+}
+
+/* ------------------------------- derived ------------------------------- */
+
+function monthMarks(){
+  var pre = S.year + "-" + String(S.month+1).padStart(2,"0");
+  return Object.keys(S.board.marks)
+    .filter(function(k){ return k.indexOf(pre)===0 && S.board.marks[k].length; })
+    .sort()
+    .map(function(k){ return [k, S.board.marks[k]]; });
+}
+function summaryText(){
+  var mm = monthMarks(), total = S.board.people.length;
+  var out = ["Charles's Crosses — " + MONTHS[S.month] + " " + S.year, ""];
+  if(!mm.length){ out.push("Nobody has marked a day yet."); }
+  else if(S.view === "day"){
+    mm.forEach(function(e){
+      out.push(pretty(e[0]) + " — " + e[1].join(", ") + " (" + e[1].length + " of " + total + ")");
+    });
+    var none = S.board.people.filter(function(p){
+      return !mm.some(function(e){ return e[1].indexOf(p) >= 0; });
+    });
+    if(none.length) out.push("", "Still to mark: " + none.join(", "));
+  } else {
+    S.board.people.forEach(function(p){
+      var days = mm.filter(function(e){ return e[1].indexOf(p) >= 0; })
+                   .map(function(e){ return pretty(e[0]); });
+      out.push(p + " — " + (days.length ? days.join(", ") : "nothing marked"));
+    });
+  }
+  return out.join("\n");
+}
+
+/* -------------------------------- render ------------------------------- */
+
+function render(){
+  var app = document.getElementById("app");
+  app.innerHTML = S.room ? (S.me ? planner() : gate()) : setup();
+  wire();
+}
+
+function setup(){
+  return '' +
+  '<p class="eyebrow" style="margin-bottom:16px">Shared wall planner</p>' +
+  '<h1 class="disp" style="font-size:clamp(44px,13vw,76px);margin-bottom:16px">Charles\'s<br>Crosses</h1>' +
+  '<p class="attrib" style="margin-bottom:20px">This app was created by Charles Cull. All Rights Reserved.</p>' +
+  '<p style="font-size:14px;margin-bottom:28px">Everyone marks the days they\'re free. ' +
+    'The day with the most crosses wins.</p>' +
+  '<p style="font-size:13px;margin-bottom:20px;color:var(--quiet)">Start a planner, then send the ' +
+    'link to whoever you\'re trying to pin down. The link is the planner — no accounts, no sign-ups.</p>' +
+  '<button class="btn solid" id="create"' + (S.loading ? ' disabled' : '') + '>' +
+    (S.loading ? 'Creating…' : 'Create a planner') + '</button>' +
+  '<p class="toast" style="margin-top:16px">' + esc(S.note) + '</p>' +
+  (DIAG ? '<p class="eyebrow" style="margin:20px 0 8px">Connection detail</p>' +
+          '<pre>'+esc(DIAG)+'</pre>' : '') +
+  '<hr class="thick">' +
+  '<p class="attrib">Already have a link? Open that instead — this page only starts new planners.</p>';
+}
+
+function gate(){
+  var link = location.href;
+  var people = S.board.people.map(function(p){
+    return '<span class="chip" style="border-color:'+inkOf(p)+';color:'+inkOf(p)+'">'+esc(p)+'</span>';
+  }).join("");
+  return '' +
+  '<p class="eyebrow" style="margin-bottom:16px">Shared wall planner</p>' +
+  '<h1 class="disp" style="font-size:clamp(40px,12vw,68px);margin-bottom:16px">Charles\'s<br>Crosses</h1>' +
+  '<p class="attrib" style="margin-bottom:20px">This app was created by Charles Cull. All Rights Reserved.</p>' +
+  '<p style="font-size:14px;margin-bottom:28px">Put your name in, then tap every day you\'re free.</p>' +
+  '<label class="eyebrow" for="name" style="display:block;margin-bottom:8px">Your name</label>' +
+  '<input id="name" maxlength="20" placeholder="Type it here" value="'+esc(S.draft)+'" ' +
+    'style="font-size:22px;border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:24px">' +
+  '<button class="btn solid" id="start" style="width:100%"' + (S.draft.trim()?'':' disabled') + '>Start marking</button>' +
+  (people ? '<p class="eyebrow" style="margin:32px 0 12px">Already marking</p><div class="row">'+people+'</div>' +
+            '<p class="attrib" style="margin-top:12px">Use the same name again to edit your own crosses.</p>' : '') +
+  '<hr class="thick">' +
+  '<p class="eyebrow" style="margin-bottom:8px">Invite link</p>' +
+  '<div class="link">'+esc(link)+'</div>' +
+  '<button class="btn" id="copylink" style="margin-top:12px">Copy invite link</button>' +
+  '<p class="toast" style="margin-top:12px">'+esc(S.note)+'</p>' +
+  '<p class="attrib" style="margin-top:24px">Everything on this planner is visible to anyone with the link.</p>';
+}
+
+function planner(){
+  var total = S.board.people.length;
+  var mm = monthMarks();
+  var h = "";
+
+  // masthead
+  h += '<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px">';
+  h += '<div><p class="eyebrow" style="margin-bottom:4px">Marking as '+esc(S.me)+'</p>' +
+       '<h1 class="disp" style="font-size:clamp(28px,6.5vw,44px)">Charles\'s Crosses</h1></div>';
+  h += '<div class="row" style="justify-content:flex-end;max-width:260px;gap:4px">' +
+    S.board.people.map(function(p){
+      var c = inkOf(p), mine = p === S.me;
+      return '<span class="chip" style="border-color:'+c+';'+
+        (mine ? 'background:'+c+';color:var(--card)' : 'color:'+c)+'">'+esc(p)+'</span>';
+    }).join("") + '</div></div>';
+
+  // month nav
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;' +
+       'border-top:2px solid var(--ink);border-bottom:1px solid var(--rule)">' +
+       '<button id="prev" aria-label="Previous month" style="font-size:16px;padding:4px 12px">&larr;</button>' +
+       '<h2 class="disp" style="font-size:22px;font-weight:500">'+MONTHS[S.month]+
+       ' <span style="color:var(--quiet)">'+S.year+'</span></h2>' +
+       '<button id="next" aria-label="Next month" style="font-size:16px;padding:4px 12px">&rarr;</button></div>';
+
+  // weekday rail
+  h += '<div class="grid" style="margin:12px 0 4px">' + DOW.map(function(d){
+    return '<div class="eyebrow" style="text-align:center">'+d+'</div>';
+  }).join("") + '</div>';
+
+  // calendar
+  h += '<div class="grid">';
+  for(var b=0; b<blanksFor(S.year,S.month); b++) h += '<div></div>';
+  var n = daysIn(S.year, S.month);
+  for(var d=1; d<=n; d++){
+    var k = key(S.year, S.month, d);
+    var marks = S.board.marks[k] || [];
+    var all = total > 1 && marks.length === total;
+    var isToday = k === todayKey;
+    var size = marks.length > 3 ? 15 : 20;
+    h += '<button class="cell'+(isToday?' today':'')+'" data-day="'+k+'" ' +
+         'aria-pressed="'+(marks.indexOf(S.me)>=0)+'" ' +
+         'aria-label="'+pretty(k)+', '+marks.length+' of '+total+' free">' +
+         '<span class="num">'+d+'</span><span class="marks">' +
+         marks.slice(0,6).map(function(nm){
+           return crossSVG(inkOf(nm), hash(nm+k), size);
+         }).join("") +
+         (marks.length > 6 ? '<span style="font-size:10px;color:var(--quiet)">+'+(marks.length-6)+'</span>' : '') +
+         '</span>' +
+         (all ? '<svg class="ring" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
+                '<ellipse cx="50" cy="50" rx="45" ry="42" fill="none" stroke="#16202B" ' +
+                'stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>' : '') +
+         '</button>';
+  }
+  h += '</div>';
+
+  // best days
+  var ranked = mm.slice().sort(function(a,b){
+    return b[1].length - a[1].length || a[0].localeCompare(b[0]);
+  }).slice(0,3);
+  h += '<hr class="thick"><p class="eyebrow" style="margin-bottom:12px">Best days this month</p>';
+  if(!ranked.length){
+    h += '<p style="font-size:13px">Nothing marked yet. Tap the days you\'re free.</p>';
+  } else {
+    h += ranked.map(function(e){
+      var c = e[1].length, all = c === total && total > 1;
+      return '<div style="display:flex;align-items:baseline;gap:12px">' +
+        '<span style="font-size:15px;font-weight:500">'+pretty(e[0])+'</span>' +
+        '<span style="flex:1;border-bottom:1px dotted var(--rule);transform:translateY(-4px)"></span>' +
+        '<span style="font-size:13px;color:'+(all?'var(--ink)':'var(--quiet)')+
+          ';font-weight:'+(all?700:400)+'">'+c+' of '+total+(all?' · everyone':'')+'</span></div>';
+    }).join("");
+  }
+
+  // summary
+  h += '<hr class="thick">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px">' +
+       '<p class="eyebrow">Who\'s free</p><div style="display:flex;border:1.5px solid var(--ink)">' +
+       ["day","person"].map(function(v){
+         var on = S.view === v;
+         return '<button data-view="'+v+'" style="font-size:10px;letter-spacing:.14em;' +
+           'text-transform:uppercase;padding:5px 12px;'+
+           (on?'background:var(--ink);color:var(--card)':'color:var(--ink)')+'">By '+v+'</button>';
+       }).join("") + '</div></div>';
+
+  if(!mm.length){
+    h += '<p style="font-size:13px">Nobody has marked a day yet. The summary fills in as people tap.</p>';
+  } else if(S.view === "day"){
+    h += mm.map(function(e){
+      var all = total > 1 && e[1].length === total;
+      return '<div class="srow"><span style="font-size:14px;min-width:92px;font-weight:'+(all?700:500)+'">' +
+        pretty(e[0]) + '</span><span class="row" style="flex:1;gap:4px">' +
+        e[1].map(function(p){
+          return '<span class="chip" style="border-color:'+inkOf(p)+';color:'+inkOf(p)+'">'+esc(p)+'</span>';
+        }).join("") + '</span><span style="font-size:11px;color:'+(all?'var(--ink)':'var(--quiet)')+
+        ';font-weight:'+(all?700:400)+'">'+(all?'everyone':e[1].length+' of '+total)+'</span></div>';
+    }).join("");
+    var none = S.board.people.filter(function(p){
+      return !mm.some(function(e){ return e[1].indexOf(p) >= 0; });
+    });
+    if(none.length) h += '<p style="font-size:12px;color:var(--quiet);margin-top:12px">Still to mark: ' +
+      esc(none.join(", ")) + '</p>';
+  } else {
+    h += S.board.people.map(function(p){
+      var days = mm.filter(function(e){ return e[1].indexOf(p) >= 0; }).map(function(e){ return pretty(e[0]); });
+      return '<div class="srow"><span class="chip" style="border-color:'+inkOf(p)+';color:'+inkOf(p)+'">' +
+        esc(p)+'</span><span style="flex:1;font-size:13px;line-height:1.7;color:' +
+        (days.length?'var(--ink)':'var(--quiet)')+'">' +
+        (days.length ? days.join(" · ") : "nothing marked yet") + '</span>' +
+        '<span style="font-size:11px;color:var(--quiet)">'+days.length+(days.length===1?' day':' days')+'</span></div>';
+    }).join("");
+  }
+
+  h += '<button class="btn solid" id="copysum" style="margin-top:16px">Copy summary as text</button>';
+  h += '<pre style="margin-top:12px">'+esc(summaryText())+'</pre>';
+
+  // controls
+  h += '<hr class="thick">';
+  h += '<p class="eyebrow" style="margin-bottom:8px">Invite link</p>' +
+       '<div class="link">'+esc(location.href)+'</div>' +
+       '<div class="row" style="margin-top:12px">' +
+       '<button class="btn" id="copylink">Copy invite link</button>' +
+       '<button class="btn" id="refresh">Refresh</button>' +
+       '<button class="btn" id="clearmine">Clear my crosses</button>' +
+       '<button class="btn" id="switch">Switch name</button>' +
+       '<button class="btn ghost" id="reset">Reset planner</button>' +
+       '<label style="font-size:11px;color:var(--quiet);display:flex;align-items:center;gap:6px">' +
+       '<input type="checkbox" id="auto" style="width:auto"'+(S.auto?' checked':'')+'> Auto-refresh</label>' +
+       '<span class="toast">'+esc(S.note)+'</span></div>';
+
+  h += '<p class="attrib" style="margin-top:20px">Marks refresh when you switch back to this tab. ' +
+       'All names and crosses are visible to anyone with the link.</p>';
+  h += '<p class="attrib" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--rule)">' +
+       'This app was created by Charles Cull. All Rights Reserved.</p>';
+  return h;
+}
+
+/* -------------------------------- wiring ------------------------------- */
+
+function on(id, ev, fn){
+  var el = document.getElementById(id);
+  if(el) el.addEventListener(ev, fn);
+}
+
+function wire(){
+  on("create","click",createPlanner);
+
+  var nameEl = document.getElementById("name");
+  if(nameEl){
+    nameEl.focus();
+    nameEl.addEventListener("input", function(e){
+      S.draft = e.target.value;
+      var btn = document.getElementById("start");
+      if(btn) btn.disabled = !S.draft.trim();
+    });
+    nameEl.addEventListener("keydown", function(e){ if(e.key === "Enter") join(); });
+  }
+  on("start","click",join);
+
+  on("prev","click",function(){ step(-1); });
+  on("next","click",function(){ step(1); });
+  on("refresh","click",function(){ pull(true); });
+  on("clearmine","click",clearMine);
+  on("switch","click",function(){ S.me = null; S.draft = ""; render(); });
+  on("reset","click",function(){
+    if(confirm("This wipes everyone's crosses, not just yours. Continue?")) resetAll();
+  });
+  on("copysum","click",function(){ copyText(summaryText(), "Summary copied"); });
+  on("copylink","click",function(){ copyText(location.href, "Invite link copied"); });
+  on("auto","change",function(e){ S.auto = e.target.checked; setTimer(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-day]"), function(el){
+    el.addEventListener("click", function(){ toggle(el.getAttribute("data-day")); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function(el){
+    el.addEventListener("click", function(){ S.view = el.getAttribute("data-view"); render(); });
+  });
+}
+
+function setTimer(){
+  if(timer) clearInterval(timer);
+  if(S.auto) timer = setInterval(function(){
+    if(!document.hidden) pull(false);
+  }, 45000);
+}
+
+/* --------------------------------- boot -------------------------------- */
+
+(function boot(){
+  var m = location.hash.match(/p=([^&]+)/);
+  if(m) S.room = decodeURIComponent(m[1]);
+  var saved = recall("crosses:name");
+  if(saved) S.draft = saved;
+
+  render();
+  if(S.room) pull(false);
+
+  // Cheapest possible sync: catch up whenever the tab regains focus.
+  document.addEventListener("visibilitychange", function(){
+    if(!document.hidden && S.room) pull(false);
+  });
+  window.addEventListener("hashchange", function(){
+    var mm = location.hash.match(/p=([^&]+)/);
+    S.room = mm ? decodeURIComponent(mm[1]) : null;
+    render();
+    if(S.room) pull(false);
+  });
+})();
+</script>
+</body>
+</html>
